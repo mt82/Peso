@@ -1,0 +1,273 @@
+---
+title: "Analisi della serie temporale delle misure di peso"
+output:
+  html_document:
+    df_print: paged
+---
+
+Le misure sono state salvate per mezzo della app [*Simple Weight Tracker*](https://play.google.com/store/apps/details?id=com.gmail.makasewicz.maciej&hl=en_US) dal Novembre 2017.
+![Alt text](https://lh3.googleusercontent.com/m1qlSNkoBCfg-oOWkKCbucjmS1WU1QM4iLWNK0fo_HledEgGpoCqEwhqoxxuJEb35g=s360-rw)
+
+Caricamento le librerie necessarie:
+
+1. *tidyverse* per la visualizzazione dei dati
+2. *lubridate* per le operazioni sulle date
+3. *lomb* per il periodogramma Lomb-Scargle 
+4. *gridExtra* per la disposizione dei grafici
+
+```{r}
+suppressMessages(suppressWarnings(library(tidyverse)))
+suppressMessages(library(lubridate))
+library(lomb)
+suppressMessages(suppressWarnings(library(gridExtra)))
+```
+
+### Importazione dei dati e preparazione per l'analisi
+
+I dati sono forniti dalla app in formato *csv* con le seguenti colonne:
+
+1. *data*
+2. *peso*
+
+Nel codice che segue vengono aggiunte le seguenti colonne:
+
+* *giorno della settimana*
+* *mese (lettere)*
+* *mese (numero)*
+* *anno*
+* *numero della settimana*
+* *anno e numero della settimana*
+
+*giorno della settimana*, *mese (lettere)* e *anno* sono convertiti in **factor**
+
+```{r}
+dt = read.csv("SWT_EXPORT_11_15_20_13_40.csv", 
+              header = TRUE, 
+              colClasses=c('Date','numeric'))
+dt <- dt %>% 
+    mutate(time=as.POSIXct(Date,format="%Y-%m-%d")) %>%
+    mutate(dayWeek=weekdays(Date)) %>%
+    mutate(MonthName=months(Date)) %>%
+    mutate(Month=month(Date)) %>%
+    mutate(Year=year(Date)) %>%
+    mutate(Week=week(Date)) %>%
+    mutate(YearWeek =
+           as.factor(
+               paste(
+                   as.character(Year),
+                   as.character(Week),
+                   sep='-')))
+
+dt$dayWeek <- factor(dt$dayWeek, 
+                     levels = 
+                         c("lunedì", "martedì",
+                           "mercoledì", "giovedì",
+                           "venerdì", "sabato", 
+                           "domenica"
+                           ))
+
+dt$MonthName <- factor(dt$MonthName, 
+                       levels = 
+                           c("gennaio", "febbraio", 
+                             "marzo", "aprile", 
+                             "maggio", "giugno", 
+                             "luglio", "agosto", 
+                             "settembre", "ottobre",
+                             "novembre", "dicembre"
+                             ))
+
+dt$Year <- as.factor(dt$Year)
+```
+
+### Sommario della distribuzione dei pesi
+
+Gli istogrammi mostrano il numero di misure per:
+
+* giorno della settimana
+* mese
+* anno
+
+Nel weekend le misure sono in numero inferiore rispetto ad i giorni lavorativi della settimana.
+Le misure dei mesi estivi sono in numero inferiori rispetto agli altri mesi.
+
+```{r, fig.width=10, fig.height=10}
+p1 <- dt %>%
+    ggplot(mapping = aes(x=dayWeek)) +
+    geom_bar(color = "black", size = 0.1, fill = "grey", alpha = 0.5) +
+    xlab("Giorni della settimana")
+p2 <- dt %>%
+    ggplot(mapping = aes(x=MonthName)) +
+    geom_bar(color = "black", size = 0.1, fill = "grey", alpha = 0.5) +
+    xlab("Mese") +
+    theme(axis.text.x = element_text(angle=20))
+p3 <- dt %>%
+    ggplot(mapping = aes(x=Year)) +
+    geom_bar(color = "black", size = 0.1, fill = "grey", alpha = 0.5) +
+    xlab("Anno")
+grid.arrange(p1, p2, p3, nrow=3)
+```
+
+### Distribuzione dei pesi
+
+Gli istogrammi mostrano la distribuzione delle misure di peso (sopra) e le stesse misure suddivise per anno (sotto). La linea rossa corrisponde alla mediana mentre la linea blu corrisponde alla media.
+
+
+La media globale è `r sprintf("%.2f",summary(dt[,"Weight"])["Mean"])` kg mentre le medie per anno sono:
+
+* 2017: `r sprintf("%.2f",summary(filter(dt,Year == 2017)[,"Weight"])["Mean"])` kg
+* 2018: `r sprintf("%.2f",summary(filter(dt,Year == 2018)[,"Weight"])["Mean"])` kg
+* 2019: `r sprintf("%.2f",summary(filter(dt,Year == 2019)[,"Weight"])["Mean"])` kg
+* 2020: `r sprintf("%.2f",summary(filter(dt,Year == 2020)[,"Weight"])["Mean"])` kg
+
+```{r, fig.width=10, fig.height=10}
+p1 <- dt %>% ggplot(aes(x=Weight)) +
+    geom_histogram(alpha=0.4, 
+                   color = "black", 
+                   fill = "gray", 
+                   size = 0.5, 
+                   breaks = seq(from = 65, to = 80, by = 0.2)) + 
+    xlab("Peso (kg)") +
+    scale_x_continuous(limits = c(65, 80)) +
+    geom_vline(xintercept = mean(dt[,"Weight"]), 
+               linetype="dotted", 
+               color = "blue", 
+               size=1.5) +
+    geom_vline(xintercept = median(dt[,"Weight"]), 
+               linetype="dotted", 
+               color = "red", 
+               size=1.5)
+
+p2 <- dt %>% ggplot(aes(x=Weight, fill=Year)) +
+    geom_histogram(position="Identity", 
+                   alpha=0.3, 
+                   size = 0.1, 
+                   color = "black",
+                   breaks = seq(from = 65, to = 80, by = 0.2)) + 
+    xlab("Peso (kg)") + 
+    scale_fill_discrete(name='Anno') +
+    theme(legend.position="bottom")
+grid.arrange(p1, p2, nrow=2)
+```
+### Peso in funzione della data
+
+Grafico della serie temporale delle misure di peso dal `r min(dt$Date)` al `r max(dt$Date)` per un totale di `r max(dt$Date) - min(dt$Date)` giorni
+
+```{r, fig.width=10, fig.height=10}
+ggplot(data=dt, mapping = aes(x = Date, y = Weight)) + 
+ ylab("Peso (kg)") + 
+ xlab("Data") + 
+ geom_point(shape=3, color = "red") +
+ geom_smooth(method = "loess", span = 0.05, color = "black") +
+ theme(axis.text.x = element_text(angle=10)) +
+ scale_x_date(date_breaks = "2 month", date_labels = "%b-%y") +
+ geom_hline(yintercept = 71, linetype="dotted", 
+                color = "blue", size=1.)
+```
+
+### Peso per anno
+
+```{r, fig.width=10, fig.height=10}
+dt %>% ggplot(aes(x=Year,y=Weight)) +
+    geom_boxplot() +
+    xlab("Anno") +
+    ylab("Peso (kg)")
+```
+
+### Scarto del peso rispetto alla media annuale in funzione del mese
+
+```{r, fig.width=10, fig.height=10}
+itable <- dt[,c("Weight","MonthName","Year")]
+table <- itable[0,]
+
+for(y in unique(itable[,"Year"]))
+    table <- rbind(table,
+                   mutate(filter(itable, Year == y),
+                          delta = Weight - 
+                          mean(filter(itable, Year == y)[,"Weight"])))
+
+table %>%
+    ggplot() + geom_boxplot(mapping = aes(x = MonthName, 
+                                          y = delta)) + 
+    xlab("Mese") + 
+    ylab("Scarto del peso (kg)")+
+    theme(axis.text.x = element_text(angle=30))
+```
+
+### Scarto del peso rispetto alla media settimanale in funzione del giorno della settimana
+
+```{r, fig.width=10, fig.height=10}
+itable <- dt[,c("Weight","dayWeek","Week","YearWeek")]
+table <- itable[0,]
+
+for(yw in unique(itable[,"YearWeek"]))
+    table <- rbind(table,
+                   mutate(filter(itable, YearWeek == yw),
+                          delta = Weight - 
+                          mean(filter(itable,
+                                      YearWeek == yw)[,"Weight"])))
+
+table %>%
+    ggplot() + geom_boxplot(mapping = aes(x = dayWeek, 
+                                          y = delta
+                                         )) + 
+    xlab("Giorno della settimana") + 
+    ylab("Scarto del peso (kg)")+
+    theme(axis.text.x = element_text(angle=30))
+```
+
+### Lomb-Scargle Periodogram
+
+La linea rossa corrisponde ad un anno mentre la linea blue corrisponde ad una settimana.
+
+```{r, fig.width=10, fig.height=10}
+clusterize <- function(x, thr) {
+    ret <- list()
+    v <- x[1]
+    nv <- 1
+    for(i in c(2:length(x)))
+    {
+        if(x[i]/x[i-1] - 1 < thr)
+        {
+            v <- v + x[i]
+            nv <- nv + 1
+        }
+        else
+        {
+            ret <- c(ret,v/nv)
+            v <- x[i]
+            nv <- 1
+        }
+    }
+    ret <- c(ret,v/nv)
+    return(ret)
+}
+
+plot <- lsp(dt[,c("time","Weight")], 
+            type = "frequency", 
+            from = 6e-8, 
+            to = 2e-6, 
+            alpha = 0.99999)
+power <- unlist(plot["power"], use.names=FALSE)
+scanned <- unlist(plot["scanned"], use.names=FALSE)
+
+minpower <- 3.6
+freq <- scanned[which(power>minpower)]
+
+clusters <- as.vector(as.numeric(clusterize(freq,0.3)))
+
+abline(v=clusters, 
+       col=rep("blue",times = length(clusters)), 
+       lty=rep(3,times = length(clusters)), 
+       lwd=rep(1,times = length(clusters)))
+
+periods <- 1/clusters/60/60/24
+```
+
+I periodi con potenza maggiore di `r minpower` sono `r length(periods)`:
+
+```{r, results='asis'}
+for (i in c(1:length(periods))){
+  cat(paste(i,".",sep=''), round(periods[i],digits=0), "giorni\n")
+}
+```
+
