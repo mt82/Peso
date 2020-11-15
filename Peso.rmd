@@ -41,7 +41,7 @@ Nel codice che segue vengono aggiunte le seguenti colonne:
 *giorno della settimana*, *mese (lettere)* e *anno* sono convertiti in **factor**
 
 ```{r}
-dt = read.csv("SWT_EXPORT_11_15_20_13_40.csv", 
+dt = read.csv("data/SWT_EXPORT_11_15_20_13_40.csv", 
               header = TRUE, 
               colClasses=c('Date','numeric'))
 dt <- dt %>% 
