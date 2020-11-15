@@ -1,6 +1,5 @@
 data/*
 *.pdf
-*.html
 .ipynb_checkpoints/*
 .Rhistory
 Peso/*
